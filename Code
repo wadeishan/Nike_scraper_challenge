@@ -1,0 +1,341 @@
+"""
+REAL NIKE WEB SCRAPER - Meets all requirements
+"""
+
+import time
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+
+class NikeScraper:
+    def __init__(self):
+        self.driver = None
+        self.all_products = []
+        self.empty_tagging_count = 0
+        
+    def setup_driver(self):
+        """Setup Chrome with proper options"""
+        options = webdriver.ChromeOptions()
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        # Remove headless if you want to see it working
+        # options.add_argument('--headless')
+        
+        self.driver = webdriver.Chrome(options=options)
+        self.wait = WebDriverWait(self.driver, 10)
+        
+    def scrape_products(self):
+        """Main scraping function"""
+        print("Starting Nike Philippines scraping...")
+        
+        # Step 1: Open Website
+        self.driver.get("https://www.nike.com/ph/w")
+        time.sleep(5)
+        
+        # Accept cookies if present
+        self.accept_cookies()
+        
+        # Get product links from all pages
+        product_links = self.get_all_product_links()
+        print(f"Found {len(product_links)} total products")
+        
+        # Scrape each product
+        for i, link in enumerate(product_links, 1):
+            print(f"Scraping product {i}/{len(product_links)}...")
+            self.scrape_single_product(link)
+            time.sleep(2)  # Be respectful
+        
+        # Step 3: Print empty tagging count
+        print(f"\nTotal products with empty tagging: {self.empty_tagging_count}")
+        
+        # Save data
+        self.save_results()
+        
+        self.driver.quit()
+    
+    def accept_cookies(self):
+        """Accept cookies if popup appears"""
+        try:
+            accept_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Accept')]")
+            accept_btn.click()
+            time.sleep(2)
+        except:
+            pass
+    
+    def get_all_product_links(self):
+        """Get product links from all pages"""
+        links = []
+        page = 1
+        
+        while True:
+            print(f"Scraping page {page}...")
+            
+            # Wait for products to load
+            try:
+                self.wait.until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='product-card']"))
+                )
+            except TimeoutException:
+                print("No more products found")
+                break
+            
+            # Extract product links
+            products = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid='product-card'] a")
+            for product in products:
+                href = product.get_attribute('href')
+                if href and href not in links:
+                    links.append(href)
+            
+            print(f"  Found {len(links)} unique products so far")
+            
+            # Try to go to next page
+            try:
+                next_btn = self.driver.find_element(By.CSS_SELECTOR, "a[aria-label='Next']")
+                if 'disabled' in next_btn.get_attribute('class'):
+                    break
+                next_btn.click()
+                time.sleep(4)
+                page += 1
+            except:
+                break
+        
+        return links
+    
+    def scrape_single_product(self, url):
+        """Scrape details from a single product page"""
+        self.driver.get(url)
+        time.sleep(3)
+        
+        product = {
+            'Product_URL': url,
+            'Product_Image_URL': self.extract_image(),
+            'Product_Tagging': self.extract_tagging(),
+            'Product_Name': self.extract_name(),
+            'Product_Description': self.extract_description(),
+            'Original_Price': self.extract_original_price(),
+            'Discount_Price': self.extract_discount_price(),
+            'Sizes_Available': self.extract_sizes(),
+            'Vouchers': self.extract_vouchers(),
+            'Available_Colors': self.extract_colors(),
+            'Color_Shown': self.extract_color_shown(),
+            'Style_Code': self.extract_style_code(),
+            'Rating_Score': self.extract_rating(),
+            'Review_Count': self.extract_review_count()
+        }
+        
+        # Check tagging rule
+        if not product['Product_Tagging']:
+            self.empty_tagging_count += 1
+        else:
+            self.all_products.append(product)
+    
+    def extract_image(self):
+        """Extract product image URL"""
+        try:
+            img = self.driver.find_element(By.CSS_SELECTOR, "img[data-qa='product-image']")
+            return img.get_attribute('src')
+        except:
+            return ""
+    
+    def extract_tagging(self):
+        """Extract product tagging"""
+        try:
+            tags = []
+            tag_elements = self.driver.find_elements(By.CSS_SELECTOR, ".badge-text, .product-badge")
+            for tag in tag_elements:
+                text = tag.text.strip()
+                if text:
+                    tags.append(text)
+            return ", ".join(tags)
+        except:
+            return ""
+    
+    def extract_name(self):
+        """Extract product name"""
+        try:
+            name = self.driver.find_element(By.CSS_SELECTOR, "h1#pdp_product_title")
+            return name.text.strip()
+        except:
+            return ""
+    
+    def extract_description(self):
+        """Extract product description"""
+        try:
+            desc = self.driver.find_element(By.CSS_SELECTOR, "[data-qa='product-description']")
+            return desc.text.strip()
+        except:
+            return ""
+    
+    def extract_original_price(self):
+        """Extract original price"""
+        try:
+            price = self.driver.find_element(By.CSS_SELECTOR, "s.original-price")
+            return price.text.strip()
+        except:
+            return ""
+    
+    def extract_discount_price(self):
+        """Extract discount price"""
+        try:
+            price = self.driver.find_element(By.CSS_SELECTOR, "div.product-price")
+            return price.text.strip()
+        except:
+            return ""
+    
+    def extract_sizes(self):
+        """Extract available sizes"""
+        try:
+            sizes = []
+            size_elements = self.driver.find_elements(By.CSS_SELECTOR, "button[data-qa='size-available']")
+            for size in size_elements:
+                text = size.text.strip()
+                if text:
+                    sizes.append(text)
+            return ", ".join(sizes)
+        except:
+            return ""
+    
+    def extract_vouchers(self):
+        """Extract voucher information"""
+        try:
+            vouchers = []
+            voucher_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'voucher')]")
+            for v in voucher_elements[:2]:
+                text = v.text.strip()
+                if text:
+                    vouchers.append(text)
+            return ", ".join(vouchers)
+        except:
+            return ""
+    
+    def extract_colors(self):
+        """Extract available colors"""
+        try:
+            colors = []
+            color_elements = self.driver.find_elements(By.CSS_SELECTOR, "button[data-qa='colorway']")
+            for color in color_elements:
+                name = color.get_attribute('aria-label')
+                if name:
+                    colors.append(name)
+            return ", ".join(colors)
+        except:
+            return ""
+    
+    def extract_color_shown(self):
+        """Extract color shown"""
+        try:
+            color = self.driver.find_element(By.CSS_SELECTOR, ".selected-color")
+            return color.text.strip()
+        except:
+            return ""
+    
+    def extract_style_code(self):
+        """Extract style code"""
+        try:
+            # Look for style code in the page
+            page_text = self.driver.page_source
+            import re
+            match = re.search(r'Style:\s*([A-Z0-9-]+)', page_text)
+            if match:
+                return match.group(1)
+            return ""
+        except:
+            return ""
+    
+    def extract_rating(self):
+        """Extract rating score"""
+        try:
+            rating = self.driver.find_element(By.CSS_SELECTOR, "[data-qa='product-rating']")
+            return rating.text.strip()
+        except:
+            return ""
+    
+    def extract_review_count(self):
+        """Extract review count"""
+        try:
+            reviews = self.driver.find_element(By.XPATH, "//*[contains(text(), 'reviews')]")
+            return reviews.text.strip()
+        except:
+            return ""
+    
+    def save_results(self):
+        """Save results to CSV files"""
+        if not self.all_products:
+            print("No products scraped!")
+            return
+        
+        df = pd.DataFrame(self.all_products)
+        
+        # Step 4: Filter valid products
+        valid_df = df[
+            (df['Product_Tagging'].notna()) & 
+            (df['Product_Tagging'] != '') &
+            (df['Discount_Price'].notna()) & 
+            (df['Discount_Price'] != '')
+        ]
+        
+        # Save main CSV
+        valid_df.to_csv('nike_products_valid.csv', index=False)
+        print(f"Saved {len(valid_df)} valid products to nike_products_valid.csv")
+        
+        # Step 5A: Print Top 10 Most Expensive
+        print("\nTOP 10 MOST EXPENSIVE PRODUCTS:")
+        print("-" * 50)
+        
+        # Extract numeric prices
+        def get_numeric_price(price_str):
+            import re
+            numbers = re.findall(r'\d+', str(price_str))
+            return float(''.join(numbers)) if numbers else 0
+        
+        valid_df['Price_Numeric'] = valid_df['Discount_Price'].apply(get_numeric_price)
+        top_10 = valid_df.sort_values('Price_Numeric', ascending=False).head(10)
+        
+        for idx, row in top_10.iterrows():
+            print(f"{idx+1}. {row['Product_Name'][:40]}...")
+            print(f"   Price: {row['Discount_Price']}")
+            print(f"   URL: {row['Product_URL'][:60]}...")
+            print()
+        
+        # Step 5B: Create ranking CSV
+        print("\nCREATING RANKING CSV...")
+        
+        # Convert to numeric
+        valid_df['Review_Count_Num'] = pd.to_numeric(
+            valid_df['Review_Count'].str.extract(r'(\d+)')[0], 
+            errors='coerce'
+        )
+        valid_df['Rating_Score_Num'] = pd.to_numeric(valid_df['Rating_Score'], errors='coerce')
+        
+        # Filter: Review Count > 150
+        eligible = valid_df[valid_df['Review_Count_Num'] > 150].copy()
+        
+        if len(eligible) > 0:
+            # Sort by rating then review count
+            eligible = eligible.sort_values(
+                ['Rating_Score_Num', 'Review_Count_Num'],
+                ascending=[False, False]
+            )
+            
+            # Assign ranks
+            eligible['Rank'] = eligible.groupby(
+                ['Rating_Score_Num', 'Review_Count_Num']
+            ).ngroup() + 1
+            
+            # Take top 20
+            top_20 = eligible.head(20)
+            top_20.to_csv('top_20_rating_review.csv', index=False)
+            print(f"Saved top 20 ranked products to top_20_rating_review.csv")
+        else:
+            print("No products with Review Count > 150")
+
+# Run the scraper
+if __name__ == "__main__":
+    scraper = NikeScraper()
+    scraper.setup_driver()
+    scraper.scrape_products()
